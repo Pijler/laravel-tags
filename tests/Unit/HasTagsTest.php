@@ -41,6 +41,9 @@ test('it should attach a single tag', function () {
 
     expect($this->post->hasTag('Laravel'))->toBeTrue();
     expect($this->post->hasTag('laravel'))->toBeTrue();
+    expect($this->post->hasTag('LARAVEL'))->toBeTrue();
+    expect(Post::withAnyTags(['LARAVEL'])->count())->toBe(1);
+    expect($this->article->attachTag('Laravel')->hasTag('LARAVEL'))->toBeTrue();
 });
 
 test('it should not attach the same tag twice', function () {
@@ -172,6 +175,7 @@ test('it should store tags on the model in the given order', function () {
     expect($this->post->tags->pluck('pivot.order')->all())->toBe([1, 2]);
     expect($this->post->tags->pluck('name')->all())->toBe(['Laravel', 'PHP']);
     expect(collect($this->post->getTags())->pluck('name')->all())->toBe(['Laravel', 'PHP']);
+    expect(collect($this->post->getTags())->pluck('order')->all())->toBe([1, 2]);
 });
 
 test('it should append newly attached tags after the current order', function () {
@@ -198,6 +202,7 @@ test('it should rewrite taggable order when syncing tags', function () {
     expect($this->post->tags->pluck('pivot.order')->all())->toBe([1, 2]);
     expect($this->post->tags->pluck('name')->all())->toBe(['Vue', 'Laravel']);
     expect(collect($this->post->getTags())->pluck('name')->all())->toBe(['Vue', 'Laravel']);
+    expect(collect($this->post->getTags())->pluck('order')->all())->toBe([1, 2]);
 });
 
 test('it should not match models when withAllTags includes a missing tag', function () {
@@ -205,6 +210,33 @@ test('it should not match models when withAllTags includes a missing tag', funct
 
     expect(Post::withAllTags(['Missing'])->count())->toBe(0);
     expect(Post::withAllTags(['Laravel', 'Missing'])->count())->toBe(0);
+});
+
+test('it should not match a typed tag when hasTag omits the type', function () {
+    $this->post->attachTag('News', 'category');
+    $this->article->attachTag('News', 'category');
+
+    expect($this->post->hasTag('News'))->toBeFalse();
+    expect($this->post->hasTag('News', 'category'))->toBeTrue();
+    expect($this->article->hasTag('News'))->toBeFalse();
+    expect($this->article->hasTag('News', 'category'))->toBeTrue();
+});
+
+test('it should resolve hasTag from a tag model using that tag type', function () {
+    $tag = Tag::findOrCreate('News', 'category');
+
+    $this->post->attachTag($tag);
+
+    expect($this->post->hasTag($tag))->toBeTrue();
+    expect($this->post->hasTag($tag, 'topic'))->toBeFalse();
+});
+
+test('it should return default type tags when tagsWithType has no type', function () {
+    $this->post->attachTags(['Laravel']);
+    $this->post->attachTag('News', 'category');
+
+    expect(collect($this->post->tagsWithType())->pluck('name')->all())->toBe(['Laravel']);
+    expect(collect($this->article->attachTag('Laravel')->tagsWithType())->pluck('name')->all())->toBe(['Laravel']);
 });
 
 test('it should queue tags detached before the model is persisted', function () {
@@ -248,4 +280,12 @@ test('it should serialize the snapshot column as tags', function () {
 
     expect(data_get($this->post->toArray(), 'tags.0'))->toBeArray();
     expect(collect(data_get($this->post->toArray(), 'tags'))->pluck('name')->all())->toBe(['Laravel', 'PHP']);
+});
+
+test('it should omit the snapshot from toArray when tags are hidden', function () {
+    $this->post->attachTags(['Laravel']);
+
+    $this->post->makeHidden('tags');
+
+    expect($this->post->toArray())->not->toHaveKey('tags');
 });

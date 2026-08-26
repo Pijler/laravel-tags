@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Pijler\LaravelTags\Models\Tag;
 use Pijler\LaravelTags\TagCreator;
 
@@ -82,13 +83,17 @@ trait HasTags
 
     /**
      * Include the snapshot under the tags column when serializing.
+     *
+     * Hidden and visible attributes are respected: the snapshot is only
+     * written when parent::toArray() already exposes the tags key.
      */
     public function toArray(): array
     {
         $array = parent::toArray();
+        $column = $this->tagsColumn();
 
-        if ($this->hasTagsColumn()) {
-            $array[$this->tagsColumn()] = $this->getTags();
+        if ($this->hasTagsColumn() && array_key_exists($column, $array)) {
+            $array[$column] = $this->getTags();
         }
 
         return $array;
@@ -254,14 +259,17 @@ trait HasTags
 
     /**
      * Determine whether the model has the given tag.
+     *
+     * When no type is given, the default type is used — except for a Tag
+     * model, whose own type is used.
      */
     public function hasTag(mixed $tag, mixed $type = null): bool
     {
-        $type = enum_value($type);
+        $type = TagCreator::normalizeType($type ?? ($tag instanceof Tag ? $tag->type : null));
 
         if ($this->hasTagsColumn()) {
             return collect($this->getTags())->contains(function (array $snapshot) use ($tag, $type) {
-                if (filled($type) && data_get($snapshot, 'type') !== $type) {
+                if (data_get($snapshot, 'type') !== $type) {
                     return false;
                 }
 
@@ -269,19 +277,16 @@ trait HasTags
                     return data_get($snapshot, 'id') === $tag->getKey();
                 }
 
-                return data_get($snapshot, 'name') === $tag
-                    || data_get($snapshot, 'slug') === $tag;
+                return $this->tagMatchesName($snapshot, $tag);
             });
         }
 
-        return $this->tags->when(filled($type), function (Collection $tags) use ($type) {
-            return $tags->where('type', $type);
-        })->contains(function (Tag $modelTag) use ($tag) {
+        return $this->tags->where('type', $type)->contains(function (Tag $modelTag) use ($tag) {
             if ($tag instanceof Tag) {
                 return $modelTag->is($tag);
             }
 
-            return $modelTag->name === $tag || $modelTag->slug === $tag;
+            return $this->tagMatchesName($modelTag, $tag);
         });
     }
 
@@ -315,9 +320,9 @@ trait HasTags
         $this->unsetRelation('tags');
 
         if ($this->hasTagsColumn()) {
-            $this->fillTagsColumn($tags->map(function (Tag $tag) {
-                return $tag->toSnapshot();
-            })->values()->all());
+            $this->fillTagsColumn($tags->values()->map(function (Tag $tag, int $index) {
+                return $this->tagToSnapshot($tag, $index + 1);
+            })->all());
         }
 
         return $this;
@@ -332,7 +337,7 @@ trait HasTags
             $tag = $this->locateTags($value, $type)->first();
 
             $query->whereHas('tags', function (Builder $query) use ($tag) {
-                $query->where($query->getModel()->getQualifiedKeyName(), $tag?->getKey() ?? 0);
+                $query->whereIn($query->getModel()->getQualifiedKeyName(), $tag ? [$tag->getKey()] : []);
             });
         });
 
@@ -373,7 +378,7 @@ trait HasTags
         })->all();
 
         return $query->whereHas('tags', function (Builder $query) use ($types) {
-            $query->whereIn('type', $types);
+            $query->whereIn($query->getModel()->qualifyColumn('type'), $types);
         });
     }
 
@@ -424,9 +429,17 @@ trait HasTags
             return [];
         }
 
-        return $this->tags->map(function (Tag $tag) {
-            return $tag->toSnapshot();
-        })->values()->all();
+        return $this->tags->values()->map(function (Tag $tag, int $index) {
+            return $this->tagToSnapshot($tag, $tag->pivot->order ?? ($index + 1));
+        })->all();
+    }
+
+    /**
+     * Convert a tag into a snapshot, using the given model order.
+     */
+    protected function tagToSnapshot(Tag $tag, int $order): array
+    {
+        return array_merge($tag->toSnapshot(), ['order' => $order]);
     }
 
     /**
@@ -463,7 +476,20 @@ trait HasTags
      */
     protected function nextTaggableOrder(): int
     {
-        return (int) $this->tags()->max('taggables.order') + 1;
+        $relation = $this->tags();
+
+        return (int) $relation->max($relation->qualifyPivotColumn('order')) + 1;
+    }
+
+    /**
+     * Determine whether a snapshot or tag model matches the given tag value.
+     */
+    protected function tagMatchesName(mixed $data, mixed $tag): bool
+    {
+        $name = data_get($data, 'name');
+        $slug = data_get($data, 'slug');
+
+        return $name === $tag || $slug === $tag || $slug === Str::slug((string) $tag);
     }
 
     /**

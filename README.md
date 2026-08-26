@@ -127,22 +127,23 @@ $post->syncTagsWithType(['Eloquent', 'Queues'], 'topic');
 
 #### 5. Reading Tags
 
-`$post->tags` is the relation (a collection of `Tag` models). When the model has a `tags` JSON column, `getTags()` returns the snapshot without querying that relation. The snapshot contains every tag field except `created_at` and `updated_at`. `tagsWithType()` also returns snapshot arrays, not Tag models.
+`$post->tags` is the relation (a collection of `Tag` models). When the model has a `tags` JSON column, `getTags()` returns the snapshot without querying that relation. The snapshot contains every tag field except `created_at` and `updated_at`; `order` is the pivot order on that model. `tagsWithType()` also returns snapshot arrays, not Tag models. Without a type, `tagsWithType()` and `hasTag()` use the default type.
 
 ```php
 $post->tags; // collection of Tag models
 $post->getTags();
 // [
-//     ['id' => '...', 'name' => 'Laravel', 'slug' => 'laravel', 'type' => 'default'],
-//     ['id' => '...', 'name' => 'PHP', 'slug' => 'php', 'type' => 'default'],
+//     ['id' => '...', 'name' => 'Laravel', 'slug' => 'laravel', 'type' => 'default', 'order' => 1],
+//     ['id' => '...', 'name' => 'PHP', 'slug' => 'php', 'type' => 'default', 'order' => 2],
 // ]
 
+$post->tagsWithType(); // default type
 $post->tagsWithType('category');
 $post->hasTag('Laravel');
 $post->hasTag('News', 'category');
 ```
 
-When a model has the snapshot column, `toArray()` / `toJson()` expose that snapshot under `tags`, not the relation.
+When a model has the snapshot column, `toArray()` / `toJson()` expose that snapshot under `tags`, not the relation, unless `tags` is hidden.
 
 When a tag is renamed, updated, or deleted, attached snapshots are refreshed automatically.
 
@@ -214,8 +215,8 @@ $model->detachTag(mixed $tag, mixed $type = null): static
 $model->detachTags(mixed $tags, mixed $type = null): static
 $model->syncTags(mixed $tags): static
 $model->syncTagsWithType(mixed $tags, mixed $type = null): static
-$model->hasTag(mixed $tag, mixed $type = null): bool
-$model->tagsWithType(mixed $type = null): array // snapshot arrays, not Tag models
+$model->hasTag(mixed $tag, mixed $type = null): bool // without type, uses the default type
+$model->tagsWithType(mixed $type = null): array // snapshot arrays of that type; default type when omitted
 $model->syncTagsColumn(): static
 ```
 
