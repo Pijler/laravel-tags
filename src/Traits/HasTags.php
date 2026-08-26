@@ -328,21 +328,11 @@ trait HasTags
      */
     public function scopeWithAllTags(Builder $query, mixed $tags, mixed $type = null): Builder
     {
-        $requested = $this->normalizeTagInput($tags);
+        $this->normalizeTagInput($tags)->each(function ($value) use ($query, $type) {
+            $tag = $this->locateTags($value, $type)->first();
 
-        if ($requested->isEmpty()) {
-            return $query;
-        }
-
-        $located = $this->locateTags($tags, $type);
-
-        if ($located->count() !== $requested->count()) {
-            return $query->whereRaw('0 = 1');
-        }
-
-        $located->each(function (Tag $tag) use ($query) {
             $query->whereHas('tags', function (Builder $query) use ($tag) {
-                $query->where($tag->getQualifiedKeyName(), $tag->getKey());
+                $query->where($query->getModel()->getQualifiedKeyName(), $tag?->getKey() ?? 0);
             });
         });
 
