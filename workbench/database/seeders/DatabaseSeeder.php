@@ -3,9 +3,6 @@
 namespace Workbench\Database\Seeders;
 
 use Illuminate\Database\Seeder;
-use Workbench\App\Models\Article;
-use Workbench\App\Models\Post;
-use Workbench\App\Models\User;
 
 class DatabaseSeeder extends Seeder
 {
@@ -14,10 +11,6 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        User::factory()->count(10)->create();
-
-        Post::factory()->count(10)->create();
-
-        Article::factory()->count(10)->create();
+        //
     }
 }
