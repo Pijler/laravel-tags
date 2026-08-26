@@ -21,7 +21,6 @@ class TagFactory extends Factory
 
         return [
             'name' => $name,
-            'type' => null,
         ];
     }
 

@@ -3,6 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Pijler\LaravelTags\TagCreator;
 
 return new class extends Migration
 {
@@ -15,7 +16,7 @@ return new class extends Migration
             $table->uuid('id')->primary();
             $table->string('name');
             $table->string('slug');
-            $table->string('type')->nullable();
+            $table->string('type')->default(TagCreator::defaultType());
             $table->unsignedInteger('order')->default(0);
             $table->timestamps();
 
