@@ -6,6 +6,8 @@ use Workbench\App\Models\Tag;
 
 beforeEach(function () {
     TagCreator::useTagModel(Tag::class);
+
+    TagCreator::useDefaultType('default');
 });
 
 test('it should keep the snapshot column synchronized with attached tags', function () {

@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use Pijler\LaravelTags\TagCreator;
@@ -9,15 +10,17 @@ use Workbench\App\Models\Tag;
 
 beforeEach(function () {
     TagCreator::useTagModel(Tag::class);
+
+    TagCreator::useDefaultType('default');
 });
 
 test('it should create a tag with a generated slug', function () {
     $tag = Tag::findOrCreate('Hello World');
 
     expect($tag->id)->toBeString();
-    expect($tag->type)->toBeNull();
     expect($tag->slug)->toBe('hello-world');
     expect($tag->name)->toBe('Hello World');
+    expect($tag->type)->toBe(TagCreator::defaultType());
 });
 
 test('it should not create a duplicate tag with the same name', function () {
@@ -32,10 +35,10 @@ test('it should allow the same tag name with different types', function () {
     $untagged = Tag::findOrCreate('News');
     $category = Tag::findOrCreate('News', 'category');
 
-    expect($untagged->type)->toBeNull();
     expect(Tag::query()->count())->toBe(2);
     expect($category->type)->toBe('category');
     expect($untagged->is($category))->toBeFalse();
+    expect($untagged->type)->toBe(TagCreator::defaultType());
 });
 
 test('it should find or create tags from an array', function () {
@@ -63,6 +66,13 @@ test('it should throw when an existing tag does not match the given type', funct
 
     Tag::findOrCreate($tag, 'topic');
 })->throws(InvalidArgumentException::class);
+
+test('it should keep an existing tag when no type is given', function () {
+    $tag = Tag::findOrCreate('News', 'category');
+
+    expect(Tag::findOrCreate($tag)->is($tag))->toBeTrue();
+    expect(Tag::findOrCreate($tag)->type)->toBe('category');
+});
 
 test('it should update the slug when the name changes', function () {
     $tag = Tag::findOrCreate('Laravel');
@@ -97,6 +107,14 @@ test('it should convert a tag into a snapshot without timestamps', function () {
     expect($snapshot)->toHaveKeys(['id', 'name', 'slug', 'type', 'order']);
 });
 
+test('it should omit hidden attributes from the snapshot', function () {
+    $tag = Tag::findOrCreate('Laravel');
+    $tag->makeHidden(['slug']);
+
+    expect($tag->toSnapshot())->not->toHaveKey('slug');
+    expect(data_get($tag->toSnapshot(), 'name'))->toBe('Laravel');
+});
+
 test('it should include extra tag columns in the snapshot', function () {
     Schema::table('tags', function (Blueprint $table) {
         $table->string('color')->nullable();
@@ -109,9 +127,9 @@ test('it should include extra tag columns in the snapshot', function () {
         'id' => $tag->id,
         'name' => 'Laravel',
         'slug' => 'laravel',
-        'type' => null,
-        'order' => $tag->order,
         'color' => '#ff2d20',
+        'order' => $tag->order,
+        'type' => TagCreator::defaultType(),
     ]);
 });
 
@@ -157,6 +175,7 @@ test('it should refresh snapshots when a tag is deleted', function () {
     expect($post->tags()->count())->toBe(1);
     expect($post->getTags())->toHaveCount(1);
     expect(data_get($post->getTags(), '0.name'))->toBe('PHP');
+    expect($post->tags->pluck('pivot.order')->all())->toBe([1]);
 });
 
 test('it should limit tags by type', function () {
@@ -185,3 +204,13 @@ test('it should order tags by the catalog order column', function () {
 
     expect(Tag::query()->ordered()->pluck('name')->all())->toBe(['Laravel', 'PHP']);
 });
+
+test('it should reject duplicate slugs of the same type', function () {
+    Tag::findOrCreate('Laravel');
+
+    Tag::query()->create([
+        'name' => 'Laravel',
+        'slug' => 'laravel',
+        'type' => TagCreator::defaultType(),
+    ]);
+})->throws(QueryException::class);

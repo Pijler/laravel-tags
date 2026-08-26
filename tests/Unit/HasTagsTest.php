@@ -1,6 +1,10 @@
 <?php
 
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Pijler\LaravelTags\TagCreator;
 use Workbench\App\Enums\TagType;
 use Workbench\App\Models\Article;
@@ -9,6 +13,8 @@ use Workbench\App\Models\Tag;
 
 beforeEach(function () {
     TagCreator::useTagModel(Tag::class);
+
+    TagCreator::useDefaultType('default');
 
     $this->post = Post::factory()->create();
     $this->article = Article::factory()->create();
@@ -176,6 +182,15 @@ test('it should append newly attached tags after the current order', function ()
     expect($this->post->tags->pluck('name')->all())->toBe(['Laravel', 'PHP', 'Vue']);
 });
 
+test('it should rewrite taggable order when a tag is detached', function () {
+    $this->post->attachTags(['Laravel', 'PHP', 'Vue']);
+    $this->post->detachTag('PHP');
+
+    expect($this->post->tags->pluck('pivot.order')->all())->toBe([1, 2]);
+    expect($this->post->tags->pluck('name')->all())->toBe(['Laravel', 'Vue']);
+    expect(collect($this->post->getTags())->pluck('name')->all())->toBe(['Laravel', 'Vue']);
+});
+
 test('it should rewrite taggable order when syncing tags', function () {
     $this->post->attachTags(['Laravel', 'PHP']);
     $this->post->syncTags(['Vue', 'Laravel']);
@@ -183,4 +198,54 @@ test('it should rewrite taggable order when syncing tags', function () {
     expect($this->post->tags->pluck('pivot.order')->all())->toBe([1, 2]);
     expect($this->post->tags->pluck('name')->all())->toBe(['Vue', 'Laravel']);
     expect(collect($this->post->getTags())->pluck('name')->all())->toBe(['Vue', 'Laravel']);
+});
+
+test('it should not match models when withAllTags includes a missing tag', function () {
+    $this->post->attachTags(['Laravel', 'PHP']);
+
+    expect(Post::withAllTags(['Missing'])->count())->toBe(0);
+    expect(Post::withAllTags(['Laravel', 'Missing'])->count())->toBe(0);
+});
+
+test('it should queue tags detached before the model is persisted', function () {
+    $post = new Post(['title' => 'Queued tags']);
+    $post->attachTags(['Laravel', 'PHP']);
+    $post->detachTag('Laravel');
+    $post->save();
+
+    expect($post->tags->pluck('name')->all())->toBe(['PHP']);
+});
+
+test('it should keep tags when the model is soft deleted', function () {
+    Schema::table('posts', function (Blueprint $table) {
+        $table->softDeletes();
+    });
+
+    $post = new class extends Post
+    {
+        use SoftDeletes;
+
+        protected $table = 'posts';
+    };
+    $post->title = 'Soft deleted post';
+    $post->save();
+    $post->attachTag('Laravel');
+
+    $post->delete();
+
+    expect($post->tags()->count())->toBe(1);
+
+    $id = $post->getKey();
+    $post->forceDelete();
+
+    expect(DB::table('taggables')->where('taggable_id', $id)->count())->toBe(0);
+});
+
+test('it should serialize the snapshot column as tags', function () {
+    $this->post->attachTags(['Laravel', 'PHP']);
+
+    $this->post->unsetRelation('tags');
+
+    expect(data_get($this->post->toArray(), 'tags.0'))->toBeArray();
+    expect(collect(data_get($this->post->toArray(), 'tags'))->pluck('name')->all())->toBe(['Laravel', 'PHP']);
 });
